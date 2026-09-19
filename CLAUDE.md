@@ -131,6 +131,61 @@ these from directly; revise once real task files land.
   `community.general` and now live in this dedicated collection.
 * **OS template: Debian 13** ("trixie") — current Debian stable as of
   2026-09-19; Debian 12 has moved to oldstable.
+* **Both `community.proxmox.*` tasks in `tasks/main.yml` carry
+  `delegate_to: localhost` and `become: false`** (added 2026-09-19
+  after a real consumer failure). They're API calls, not guest shell
+  commands — the guest doesn't exist yet when they run, so they must
+  not try to connect to it. This is also what makes it correct for a
+  consuming play to target the guest's own inventory hostname (so its
+  `host_vars` actually load) rather than the Proxmox node. See
+  "Consumer side notes" below and README's "Play Target Note."
+* **A consuming play also needs `gather_facts: false`** — the guest
+  doesn't exist yet, so Ansible's default fact-gathering SSH attempt
+  fails before any task in this role even runs. Found the same session
+  as the `delegate_to` fix; the first real consumer's playbook was
+  missing it.
+* **`proxmoxer`/`requests` must be importable by the control node's
+  Python** (added 2026-09-19, second real-consumer failure the same
+  session) — a `community.proxmox` runtime dependency that
+  `ansible-galaxy collection install` does not pull in, and easy to
+  miss precisely because it only matters for whichever Python actually
+  executes the `delegate_to: localhost` tasks. Asserted explicitly in
+  `tasks/preflight.yml` (a `command` + `register` + `assert`, since a
+  plain `assert` can't probe for an importable module) rather than
+  left to surface as a deep, `no_log`-obscured module import error.
+* **`proxmox_api_validate_certs` defaults to `true`, not `false`**
+  (added 2026-09-19, third real-consumer failure the same session —
+  Proxmox VE's stock self-signed cert failed TLS validation). Secure
+  by default is the right call for a generic role even though the
+  first real consumer immediately needs to flip it — silently
+  defaulting to `false` would weaken every future consumer's security
+  posture without them asking for it. `proxmox_api_ca_path` exists as
+  the more-correct alternative (validate against a real CA) for anyone
+  who'd rather not disable validation outright.
+* **`| default(omit)` does not do what it looks like it does for
+  `proxmox_lxc_vmid`, `proxmox_lxc_root_pubkey`, and
+  `proxmox_api_ca_path`** (bug found and fixed 2026-09-19, fourth
+  real-consumer issue the same session). `default(omit)` only fires
+  when a variable is *undefined* -- these all have a defined
+  `defaults/main.yml` value of `""`, so the filter never triggered and
+  the module always received a literal empty string when a consumer
+  didn't override them. Fixed with `{{ var or omit }}` instead: `""`
+  is falsy, so `or` correctly falls through to `omit`; any real value
+  is truthy and passes through unchanged. Apply the same `or omit`
+  pattern, not `default(omit)`, for any future optional variable whose
+  role-default is an empty string rather than genuinely undefined.
+* **`tasks/preflight.yml` resolves `proxmox_lxc_root_pubkey` via a
+  `block`/`rescue`, not a plain `assert`** (added 2026-09-19, fifth
+  real-consumer issue the same session — a `lookup('file', ...)`
+  pointing at a key that didn't exist on the control node). A plain
+  `assert` referencing that variable would re-trigger the same lookup
+  failure at the exact same point in execution, just inside preflight
+  instead of the create-container task -- no earlier, and with a
+  worse message. `block`/`rescue` is what actually lets the failure be
+  caught and turned into a clear, actionable message *before* the
+  template-download and container-creation API calls run, rather than
+  after burning a template-download call to reach a crash that then
+  gets partially hidden behind `no_log: true` on the create task.
 * **Hostname, static IP, and gateway are set via the `community.proxmox.proxmox`
   module's `hostname`/`net` parameters at container-creation time** —
   this is the LXC-native equivalent of cloud-init. They are deliberately
@@ -223,13 +278,20 @@ commit. Stop and verify between items.
 
 ### Consumer side notes
 
-No consumer wired in yet. Expected shape once one lands: a site-repo
-playbook targeting the Proxmox node itself (`hosts: <pve-node-fqdn>`),
-invoking this role with per-guest vars supplied from the new host's
-own `host_vars/` (hostname, IP, hardware overrides), since the
-`community.proxmox.proxmox` module talks to the Proxmox API host, not
-the guest being created — the play's `hosts:` target is the
-hypervisor, not the container.
+**Corrected 2026-09-19 after a real failure**: the play must target the
+**guest's own inventory hostname** (`hosts: <guest-fqdn>`), not the
+Proxmox node. `host_vars` load based on the play's `hosts:` target —
+pointing the play at the Proxmox node while this role's variables live
+under `host_vars/<guest-fqdn>/` means none of them get loaded; every
+`proxmox_api_*`/`proxmox_lxc_*` var silently falls back to this role's
+own empty-string default, and preflight fails with a "must all be set"
+message even though the file exists and looks correct. First real
+consumer hit exactly this. Fixed by adding `delegate_to: localhost` +
+`become: false` to both `community.proxmox.*` tasks in `tasks/main.yml`
+— they're API calls, not guest shell commands, so the play can safely
+target the guest (for correct `host_vars` resolution) while the actual
+API calls run from the control node. See README's "Play Target Note"
+for the consumer-facing explanation.
 
 ---
 

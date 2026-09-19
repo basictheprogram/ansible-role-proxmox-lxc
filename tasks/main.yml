@@ -4,11 +4,15 @@
   tags: always
 
 - name: Ensure the LXC OS template is present on the target node
+  delegate_to: localhost
+  become: false
   community.proxmox.proxmox_template:
     api_host: "{{ proxmox_api_host }}"
     api_user: "{{ proxmox_api_user }}"
     api_token_id: "{{ proxmox_api_token_id }}"
     api_token_secret: "{{ proxmox_api_token_secret }}"
+    validate_certs: "{{ proxmox_api_validate_certs }}"
+    ca_path: "{{ proxmox_api_ca_path or omit }}"
     node: "{{ proxmox_lxc_node }}"
     storage: "{{ proxmox_lxc_ostemplate_storage }}"
     content_type: vztmpl
@@ -20,13 +24,17 @@
     - template
 
 - name: Create or update the LXC container
+  delegate_to: localhost
+  become: false
   community.proxmox.proxmox:
     api_host: "{{ proxmox_api_host }}"
     api_user: "{{ proxmox_api_user }}"
     api_token_id: "{{ proxmox_api_token_id }}"
     api_token_secret: "{{ proxmox_api_token_secret }}"
+    validate_certs: "{{ proxmox_api_validate_certs }}"
+    ca_path: "{{ proxmox_api_ca_path or omit }}"
     node: "{{ proxmox_lxc_node }}"
-    vmid: "{{ proxmox_lxc_vmid | default(omit) }}"
+    vmid: "{{ proxmox_lxc_vmid or omit }}"
     hostname: "{{ proxmox_lxc_hostname }}"
     ostemplate: "{{ proxmox_lxc_ostemplate_storage }}:vztmpl/{{ proxmox_lxc_ostemplate }}"
     storage: "{{ proxmox_lxc_storage }}"
@@ -39,7 +47,7 @@
     features: "{{ proxmox_lxc_features }}"
     netif:
       net0: "name={{ proxmox_lxc_net_interface_name }},bridge={{ proxmox_lxc_bridge }},ip={{ proxmox_lxc_ip_cidr }},gw={{ proxmox_lxc_gateway }}"
-    pubkey: "{{ proxmox_lxc_root_pubkey | default(omit) }}"
+    pubkey: "{{ proxmox_lxc_root_pubkey or omit }}"
     state: "{{ proxmox_lxc_state }}"
     update: true
   no_log: true

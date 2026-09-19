@@ -52,3 +52,9 @@ proxmox_api_host: ""
 proxmox_api_user: ""
 proxmox_api_token_id: ""
 proxmox_api_token_secret: ""
+# Secure by default. Proxmox VE ships a self-signed certificate out of
+# the box, which will fail this check -- set false per-host (or supply
+# proxmox_api_ca_path below) once you've confirmed that's expected for
+# your node, not as a blanket default for every consumer of this role.
+proxmox_api_validate_certs: true
+proxmox_api_ca_path: ""

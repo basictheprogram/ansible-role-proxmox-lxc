@@ -67,3 +67,49 @@
       realtime.proxmox_lxc: proxmox_lxc_features must be a list (e.g.
       ["nesting=1"]). Use [] to disable -- not "{}" or a bare string.
     quiet: true
+
+- name: Check that proxmoxer is importable by the control node's Python
+  delegate_to: localhost
+  become: false
+  ansible.builtin.command:
+    cmd: "{{ ansible_playbook_python }} -c 'import proxmoxer'"
+  register: proxmox_lxc_proxmoxer_check
+  changed_when: false
+  failed_when: false
+
+- name: Assert proxmoxer is installed for the control node's Python
+  ansible.builtin.assert:
+    that:
+      - proxmox_lxc_proxmoxer_check.rc == 0
+    fail_msg: >-
+      realtime.proxmox_lxc: the 'proxmoxer' Python library is not
+      importable by {{ ansible_playbook_python }} -- the control
+      node's Python, since both community.proxmox.* tasks in this
+      role run with delegate_to: localhost and need it there, not on
+      the guest. Install it with:
+      {{ ansible_playbook_python }} -m pip install proxmoxer requests
+    quiet: true
+
+- name: Resolve proxmox_lxc_root_pubkey up front, before any API calls
+  # A plain `assert` on this variable would fail exactly the same way a
+  # bad `lookup('file', ...)` fails deep in the create-container task --
+  # referencing the variable is what re-triggers the lookup. block/rescue
+  # is what actually lets us turn that into a clear preflight message
+  # instead of an arg-finalization crash after a template download has
+  # already happened.
+  block:
+    - name: Attempt to resolve proxmox_lxc_root_pubkey
+      ansible.builtin.set_fact:
+        proxmox_lxc_root_pubkey_resolved: "{{ proxmox_lxc_root_pubkey }}"
+  rescue:
+    - name: Fail with a clear message when proxmox_lxc_root_pubkey can't be resolved
+      ansible.builtin.fail:
+        msg: >-
+          realtime.proxmox_lxc: proxmox_lxc_root_pubkey could not be
+          resolved -- if it's set via lookup('file', ...), that lookup
+          runs on the control node
+          ({{ ansible_playbook_python | default('wherever ansible-playbook runs') }}),
+          not the guest, so the path must exist there (shell
+          expansions like ~ are honored, but only for that machine's
+          home directory). Set it to a real, existing public key path,
+          or "" to skip SSH key injection entirely.
