@@ -14,6 +14,7 @@ IPv4/gateway, hardware sizing) idempotently.
 ## Table of Contents <a id="toc"></a>
 
 - [Requirements](#requirements)
+- [Proxmox-Side Setup](#proxmox-setup)
 - [Supported Platforms](#platforms)
 - [Role Variables](#variables)
 - [Networking Note](#networking)
@@ -40,7 +41,95 @@ IPv4/gateway, hardware sizing) idempotently.
   `tasks/preflight.yml` rather than left to fail deep inside a
   `no_log`'d module error.
 - A Proxmox VE API token with permission to create/update containers on
-  the target node
+  the target node -- see [Proxmox-Side Setup](#proxmox-setup) for the
+  exact `pveum` commands; the permissions needed are spread across
+  three separate privilege domains (VM, Datastore, SDN) and are easy
+  to under-grant one piece at a time via trial and error
+
+---
+
+## Proxmox-Side Setup <a id="proxmox-setup"></a>
+
+One-time setup on the Proxmox side, before this role can authenticate
+and create anything. Replace `ansible` (user/token name) and the
+example paths below with your own -- the storage names
+(`local`/`local-lvm`) and SDN zone/bridge (`localnetwork`/`vmbr0`)
+will vary per Proxmox install; if unsure, the permission-check error
+Proxmox itself returns names the exact path it wanted (e.g.
+`Permission check failed (/storage/local, ...)` or
+`Permission check failed (/sdn/zones/<your-zone>/<your-bridge>,
+SDN.Use)`).
+
+**1. Create a dedicated automation user** (PVE realm, not Linux PAM):
+
+```bash
+pveum user add ansible@pve --comment "Ansible automation user"
+```
+
+**2. Grant container management permissions.** Container *creation*
+needs `VM.Allocate`, which can only be granted on a path that exists
+before the container does (root, a pool, or `/vms`) -- root is
+simplest for a single automation user in a small environment:
+
+```bash
+pveum acl modify / -user ansible@pve -role PVEVMAdmin
+```
+
+**3. Grant datastore permissions** on every storage this role touches
+(defaults are `local` for the OS template and `local-lvm` for the root
+disk -- see `proxmox_lxc_ostemplate_storage`/`proxmox_lxc_storage`).
+`PVEVMAdmin` above does **not** include any `Datastore.*` privileges at
+all -- template download/registration needs `Datastore.Audit` +
+`Datastore.AllocateSpace` specifically:
+
+```bash
+pveum acl modify /storage/local -user ansible@pve -role PVEDatastoreAdmin
+pveum acl modify /storage/local-lvm -user ansible@pve -role PVEDatastoreAdmin
+```
+
+**4. Grant SDN network-use permissions**, if your Proxmox version
+manages bridges as SDN zones (introduced in newer Proxmox VE
+releases -- if the container-creation task fails with
+`Permission check failed (/sdn/zones/..., SDN.Use)`, this is the
+step you're missing). First check whether the built-in role exists on
+your version:
+
+```bash
+pveum role list | grep -i sdn
+```
+
+If `PVESDNUser` (`SDN.Audit,SDN.Use` -- exactly what's needed, no
+more) appears, grant it on the specific zone/bridge path the error
+named:
+
+```bash
+pveum acl modify /sdn/zones/localnetwork/vmbr0 -user ansible@pve -role PVESDNUser
+```
+
+If no built-in SDN role exists on your version, create a minimal
+custom one with just the required privilege instead of reaching for a
+broader built-in role:
+
+```bash
+pveum role add SDNUser -privs SDN.Use
+pveum acl modify /sdn/zones/localnetwork/vmbr0 -user ansible@pve -role SDNUser
+```
+
+**5. Create the API token.** `--privsep 0` means the token inherits
+`ansible@pve`'s permissions directly, so nothing further needs
+granting to the token itself; use `--privsep 1` (or omit the flag,
+since checked/`1` is the UI default) if you'd rather grant the token
+its own, separately-scoped permissions instead:
+
+```bash
+pveum user token add ansible@pve ansible --privsep 0
+```
+
+**Proxmox shows the token secret exactly once**, in this command's own
+output -- copy it immediately into wherever your site repo keeps
+secrets (see [Role Variables](#variables) for
+`proxmox_api_token_secret`). It cannot be retrieved again, only
+regenerated (which invalidates the old value).
 
 ---
 
@@ -78,7 +167,8 @@ User-overridable defaults. One file; no OS-specific variants (see
 | `proxmox_lxc_storage` | `str` | No | `local-lvm` | Storage pool for the root disk |
 | `proxmox_lxc_unprivileged` | `bool` | No | `true` | Create as an unprivileged container |
 | `proxmox_lxc_onboot` | `bool` | No | `true` | Start automatically when the node boots |
-| `proxmox_lxc_state` | `str` | No | `started` | `community.proxmox.proxmox` state — use `present` to create without starting |
+| `proxmox_lxc_state` | `str` | No | `present` | State for the create/update call. Must stay `present` — it's the only state with create-or-update branching; `started`/`stopped`/etc. all assume the container already exists and crash with an unhandled "does not exist in cluster" error otherwise |
+| `proxmox_lxc_running` | `bool` | No | `true` | Separately ensures the container is started after create/update, via its own `state: started` call — a freshly-created container is left stopped. Set `false` to provision without starting it |
 | `proxmox_lxc_features` | `list` | No | `[]` | e.g. `["nesting=1"]` — only needed if this LXC runs Docker or another nested-container workload directly (see [Networking Note](#networking) for why the first consumer doesn't need it) |
 | `proxmox_lxc_bridge` | `str` | No | `vmbr0` | Proxmox network bridge |
 | `proxmox_lxc_net_interface_name` | `str` | No | `eth0` | Interface name inside the guest |
@@ -161,13 +251,29 @@ since this role's tasks never actually connect to it) is enough.
 
 1. **Preflight** (`tasks/preflight.yml`) — asserts Ansible version, API
    connection vars, node/hostname, an OS template filename, IPv4
-   CIDR/gateway shape, and that `proxmox_lxc_features` is a list.
+   CIDR/gateway shape, that `proxmox_lxc_features` is a list, that
+   `proxmoxer`/`requests` are importable by the control node's Python,
+   and that `proxmox_lxc_root_pubkey` actually resolves (catches a bad
+   `lookup('file', ...)` here rather than deep inside a later task).
 2. **Ensure template present** — `community.proxmox.proxmox_template`
    downloads the named template from the Proxmox appliance catalog onto
    the node's storage if it isn't already there.
-3. **Create or update the container** — `community.proxmox.proxmox` with
-   `update: true`, so re-running this role against an existing container
-   converges its config rather than failing on "already exists."
+3. **Check whether the container already exists** —
+   `community.proxmox.proxmox_vm_info`, filtered by `name`/`node`, so the
+   next step knows which mode to use. `update: true` on
+   `community.proxmox.proxmox` only ever modifies an *existing*
+   container — passing it unconditionally on a genuinely first-ever run
+   fails with "VM with hostname ... does not exist," it does not fall
+   back to creating one.
+4. **Create or update the container** — `community.proxmox.proxmox`,
+   `state: present` (see [Role Variables](#variables) for why this must
+   stay `present`), with `update` set from the previous step's result:
+   `false` (the default) creates it when it doesn't exist yet, `true`
+   converges its config on subsequent runs once it does.
+5. **Ensure the container is running** — a separate `state: started`
+   call, gated on `proxmox_lxc_running` (default `true`). Needed
+   because step 4 leaves a freshly-created container stopped; safe to
+   run every time since `started` is a no-op when already running.
 
 ---
 

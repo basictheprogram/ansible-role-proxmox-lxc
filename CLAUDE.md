@@ -186,6 +186,54 @@ these from directly; revise once real task files land.
   template-download and container-creation API calls run, rather than
   after burning a template-download call to reach a crash that then
   gets partially hidden behind `no_log: true` on the create task.
+* **`update: true` on `community.proxmox.proxmox` is not "create or
+  update" — it's "update, and only that."** (Bug found and fixed
+  2026-09-19, sixth real-consumer issue the same session, on a
+  genuinely-first-ever run.) Passing `update: true` unconditionally,
+  which is what this role originally did, fails with "VM with
+  hostname ... does not exist in cluster" on first creation — it does
+  not fall back to creating the container. Fixed by adding a
+  `community.proxmox.proxmox_vm_info` lookup task (filtered by
+  `name`/`node`, same delegate_to/auth pattern as the other two
+  tasks) immediately before the create/update task, and setting
+  `update: "{{ proxmox_lxc_existing.proxmox_vms | length > 0 }}"`
+  instead of a hardcoded `true`. Don't revert this to a hardcoded
+  value even for a "simplify it" pass — the query task is load-bearing
+  for idempotency across both first-run and re-run cases.
+* **`proxmox_lxc_state` must default to `present`, never `started`**
+  (bug found and fixed 2026-09-19, seventh and most subtle
+  real-consumer issue the same session — this role originally
+  defaulted it to `started`). Confirmed directly against the installed
+  `community.proxmox` 2.0.0 source
+  (`plugins/modules/proxmox.py`, not just doc pages, after three
+  progressively-corrected doc-fetch summaries proved unreliable for
+  this specific question): `main()` dispatches on `state` to one of
+  `lxc_present`/`lxc_absent`/`lxc_started`/`lxc_stopped`/
+  `lxc_restarted`/`lxc_to_template`. Only `lxc_present` wraps its
+  `get_lxc_resource()` lookup in `try/except LookupError` and falls
+  through to actually creating the container when nothing is found —
+  every other state's lookup is unwrapped and lets that `LookupError`
+  propagate uncaught up to `main()`'s generic handler, surfacing as
+  `"An error occurred: VM with hostname ... does not exist in
+  cluster."` on a genuinely first-ever run. This is why the earlier
+  `proxmox_lxc_existing`/`update` fix (previous bullet) alone wasn't
+  enough — that fix was correct but powerless against a task that
+  wasn't even reaching `lxc_present` in the first place. Also
+  confirmed via source: creating via `state: present` leaves the new
+  container **stopped** (`create_lxc_instance` just calls the create
+  API, nothing starts it) — hence the separate `proxmox_lxc_running`
+  variable and its own `state: started` task, rather than trying to
+  fold "create" and "running" into one state value.
+* **Proxmox-side ACL setup needs three separate privilege domains, not
+  one role grant** (discovered 2026-09-19, eighth real-consumer issue
+  the same session, found one 403 at a time): `PVEVMAdmin` on `/` for
+  VM.Allocate, `PVEDatastoreAdmin` on each storage path for
+  Datastore.Audit/AllocateSpace (VM admin includes zero
+  `Datastore.*` privileges), and `PVESDNUser` on the specific SDN
+  zone/bridge path for SDN.Use (only relevant on Proxmox versions that
+  manage bridges as SDN zones). Full `pveum` commands now live in
+  README's "Proxmox-Side Setup" section rather than duplicated here --
+  update that section, not this bullet, if the exact commands change.
 * **Hostname, static IP, and gateway are set via the `community.proxmox.proxmox`
   module's `hostname`/`net` parameters at container-creation time** —
   this is the LXC-native equivalent of cloud-init. They are deliberately

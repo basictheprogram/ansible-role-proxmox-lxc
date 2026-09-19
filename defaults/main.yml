@@ -12,7 +12,15 @@ proxmox_lxc_storage: "local-lvm"
 # Container behavior.
 proxmox_lxc_unprivileged: true
 proxmox_lxc_onboot: true
-proxmox_lxc_state: "started" # "present" creates without starting
+proxmox_lxc_state: "present" # the only state that creates OR updates;
+# see README's Task Flow / "state vs
+# proxmox_lxc_running" for why this can't be
+# "started" -- that state requires the
+# container to already exist.
+proxmox_lxc_running: true # separately ensures the container is started
+# after create/update, since a freshly-created
+# container is left stopped. Set false to
+# provision without starting it.
 proxmox_lxc_features: [] # e.g. ["nesting=1"] -- only needed if this LXC
 # runs Docker (or another nested-container
 # workload) directly. See CLAUDE.md "Settled

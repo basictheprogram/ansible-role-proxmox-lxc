@@ -23,6 +23,25 @@
     - proxmox_lxc
     - template
 
+- name: Check whether the LXC container already exists
+  delegate_to: localhost
+  become: false
+  community.proxmox.proxmox_vm_info:
+    api_host: "{{ proxmox_api_host }}"
+    api_user: "{{ proxmox_api_user }}"
+    api_token_id: "{{ proxmox_api_token_id }}"
+    api_token_secret: "{{ proxmox_api_token_secret }}"
+    validate_certs: "{{ proxmox_api_validate_certs }}"
+    ca_path: "{{ proxmox_api_ca_path or omit }}"
+    node: "{{ proxmox_lxc_node }}"
+    type: lxc
+    name: "{{ proxmox_lxc_hostname }}"
+  register: proxmox_lxc_existing
+  no_log: true
+  tags:
+    - proxmox_lxc
+    - container
+
 - name: Create or update the LXC container
   delegate_to: localhost
   become: false
@@ -49,7 +68,27 @@
       net0: "name={{ proxmox_lxc_net_interface_name }},bridge={{ proxmox_lxc_bridge }},ip={{ proxmox_lxc_ip_cidr }},gw={{ proxmox_lxc_gateway }}"
     pubkey: "{{ proxmox_lxc_root_pubkey or omit }}"
     state: "{{ proxmox_lxc_state }}"
-    update: true
+    update: "{{ proxmox_lxc_existing.proxmox_vms | length > 0 }}"
+  no_log: true
+  tags:
+    - proxmox_lxc
+    - container
+
+- name: Ensure the LXC container is running
+  when: proxmox_lxc_running
+  delegate_to: localhost
+  become: false
+  community.proxmox.proxmox:
+    api_host: "{{ proxmox_api_host }}"
+    api_user: "{{ proxmox_api_user }}"
+    api_token_id: "{{ proxmox_api_token_id }}"
+    api_token_secret: "{{ proxmox_api_token_secret }}"
+    validate_certs: "{{ proxmox_api_validate_certs }}"
+    ca_path: "{{ proxmox_api_ca_path or omit }}"
+    node: "{{ proxmox_lxc_node }}"
+    vmid: "{{ proxmox_lxc_vmid or omit }}"
+    hostname: "{{ proxmox_lxc_hostname }}"
+    state: started
   no_log: true
   tags:
     - proxmox_lxc
