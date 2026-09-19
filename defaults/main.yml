@@ -1,0 +1,54 @@
+---
+# Hardware sizing -- reasonable defaults for a small utility container.
+# Override any of these per-host via host_vars; role defaults are
+# Ansible's lowest variable precedence, so a host_vars value always wins
+# without any extra mechanism.
+proxmox_lxc_cores: 2
+proxmox_lxc_memory: 2048 # MB
+proxmox_lxc_swap: 512 # MB
+proxmox_lxc_disk_gb: 20
+proxmox_lxc_storage: "local-lvm"
+
+# Container behavior.
+proxmox_lxc_unprivileged: true
+proxmox_lxc_onboot: true
+proxmox_lxc_state: "started" # "present" creates without starting
+proxmox_lxc_features: [] # e.g. ["nesting=1"] -- only needed if this LXC
+# runs Docker (or another nested-container
+# workload) directly. See CLAUDE.md "Settled
+# decisions" for why the first consumer of this
+# role does not need it.
+
+# Networking. Bridge has a sane default; hostname/ip/gateway do not --
+# every consumer must set these explicitly per host. Deliberately not
+# managed by realtime.network_interface (netplan) -- see CLAUDE.md.
+proxmox_lxc_bridge: "vmbr0"
+proxmox_lxc_net_interface_name: "eth0"
+proxmox_lxc_hostname: ""
+proxmox_lxc_ip_cidr: "" # e.g. "192.0.2.10/24"
+proxmox_lxc_gateway: ""
+
+# OS template. No default filename -- the exact template string
+# (including its version suffix, e.g.
+# debian-13-standard_13.0-1_amd64.tar.zst) must be checked against
+# `pveam available` on the actual target node, since Proxmox revises
+# these periodically. Consumer sets it explicitly per host.
+proxmox_lxc_ostemplate: ""
+proxmox_lxc_ostemplate_storage: "local"
+
+# Identity within Proxmox.
+proxmox_lxc_node: ""
+proxmox_lxc_vmid: "" # leave unset/empty to let Proxmox auto-assign
+
+# SSH access at creation (root). Prefer this over a post-creation
+# support-users pass for the very first login.
+proxmox_lxc_root_pubkey: ""
+
+# Proxmox API connection. No defaults for credentials -- supplied by the
+# consumer via its own vault.yml (e.g. vault_proxmox_api_token_secret),
+# per this repo's actual secrets convention: plaintext, gitignored
+# vault.yml, not real ansible-vault encryption. See CLAUDE.md.
+proxmox_api_host: ""
+proxmox_api_user: ""
+proxmox_api_token_id: ""
+proxmox_api_token_secret: ""

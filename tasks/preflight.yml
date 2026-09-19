@@ -1,0 +1,69 @@
+---
+- name: Assert minimum Ansible version
+  ansible.builtin.assert:
+    that:
+      - ansible_version.full is version('2.20', '>=')
+    fail_msg: >-
+      realtime.proxmox_lxc requires ansible-core >= 2.20,
+      but found {{ ansible_version.full }}.
+    quiet: true
+
+- name: Assert Proxmox API connection variables are set
+  ansible.builtin.assert:
+    that:
+      - proxmox_api_host | length > 0
+      - proxmox_api_user | length > 0
+      - proxmox_api_token_id | length > 0
+      - proxmox_api_token_secret | length > 0
+    fail_msg: >-
+      realtime.proxmox_lxc: proxmox_api_host, proxmox_api_user,
+      proxmox_api_token_id, and proxmox_api_token_secret must all be
+      set. These authenticate to the Proxmox API and have no default
+      on purpose.
+    quiet: true
+
+- name: Assert container identity and placement variables are set
+  ansible.builtin.assert:
+    that:
+      - proxmox_lxc_node | length > 0
+      - proxmox_lxc_hostname | length > 0
+    fail_msg: >-
+      realtime.proxmox_lxc: proxmox_lxc_node and proxmox_lxc_hostname
+      must both be set. There is no default -- this role never guesses
+      which node or hostname to provision.
+    quiet: true
+
+- name: Assert an OS template is specified
+  ansible.builtin.assert:
+    that:
+      - proxmox_lxc_ostemplate | length > 0
+    fail_msg: >-
+      realtime.proxmox_lxc: proxmox_lxc_ostemplate must be set to the
+      exact template filename (e.g.
+      debian-13-standard_13.0-1_amd64.tar.zst). Check `pveam available`
+      on {{ proxmox_lxc_node }} for the current filename -- Proxmox
+      revises these periodically, so this role does not default one.
+    quiet: true
+
+- name: Assert networking variables are set and ip_cidr looks like a CIDR
+  ansible.builtin.assert:
+    that:
+      - proxmox_lxc_ip_cidr | length > 0
+      - proxmox_lxc_gateway | length > 0
+      - proxmox_lxc_ip_cidr is regex('^[0-9]{1,3}(\.[0-9]{1,3}){3}/[0-9]{1,2}$')
+    fail_msg: >-
+      realtime.proxmox_lxc: proxmox_lxc_ip_cidr must be set to an
+      IPv4 CIDR (e.g. "192.0.2.10/24") and proxmox_lxc_gateway must be
+      set. This role only handles static IPv4 assignment today -- no
+      DHCP, no IPv6.
+    quiet: true
+
+- name: Assert proxmox_lxc_features is a list
+  ansible.builtin.assert:
+    that:
+      - proxmox_lxc_features is sequence
+      - proxmox_lxc_features is not mapping
+    fail_msg: >-
+      realtime.proxmox_lxc: proxmox_lxc_features must be a list (e.g.
+      ["nesting=1"]). Use [] to disable -- not "{}" or a bare string.
+    quiet: true

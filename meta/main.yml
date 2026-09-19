@@ -1,0 +1,26 @@
+---
+dependencies: []
+
+galaxy_info:
+  namespace: realtime
+  role_name: proxmox_lxc
+  author: "Bob Tanner"
+  description: >-
+    Creates and manages Proxmox VE LXC containers via the community.proxmox
+    collection: ensures the OS container template is present on the target
+    node's storage, then creates/updates the container (hostname, static
+    IP/gateway, hardware sizing) idempotently. Targets Debian (trixie) and
+    Ubuntu (jammy, noble, resolute) container templates on Proxmox VE 8.x
+    nodes.
+  company: "Real Time Enterprises, Inc."
+  issue_tracker_url: "https://github.com/basictheprogram/ansible-role-proxmox-lxc/issues"
+  license: MIT
+  min_ansible_version: "2.20"
+  galaxy_tags:
+    - proxmox
+    - lxc
+    - container
+    - virtualization
+    - debian
+    - ubuntu
+    - infrastructure

@@ -1,0 +1,9 @@
+.ansible/
+__pycache__/
+*.py[cod]
+.env
+.venv/
+venv/
+.cache/
+molecule/.cache/
+zzz.diff

@@ -1,0 +1,48 @@
+---
+- name: Run preflight assertions
+  ansible.builtin.include_tasks: preflight.yml
+  tags: always
+
+- name: Ensure the LXC OS template is present on the target node
+  community.proxmox.proxmox_template:
+    api_host: "{{ proxmox_api_host }}"
+    api_user: "{{ proxmox_api_user }}"
+    api_token_id: "{{ proxmox_api_token_id }}"
+    api_token_secret: "{{ proxmox_api_token_secret }}"
+    node: "{{ proxmox_lxc_node }}"
+    storage: "{{ proxmox_lxc_ostemplate_storage }}"
+    content_type: vztmpl
+    template: "{{ proxmox_lxc_ostemplate }}"
+    state: present
+  no_log: true
+  tags:
+    - proxmox_lxc
+    - template
+
+- name: Create or update the LXC container
+  community.proxmox.proxmox:
+    api_host: "{{ proxmox_api_host }}"
+    api_user: "{{ proxmox_api_user }}"
+    api_token_id: "{{ proxmox_api_token_id }}"
+    api_token_secret: "{{ proxmox_api_token_secret }}"
+    node: "{{ proxmox_lxc_node }}"
+    vmid: "{{ proxmox_lxc_vmid | default(omit) }}"
+    hostname: "{{ proxmox_lxc_hostname }}"
+    ostemplate: "{{ proxmox_lxc_ostemplate_storage }}:vztmpl/{{ proxmox_lxc_ostemplate }}"
+    storage: "{{ proxmox_lxc_storage }}"
+    disk: "{{ proxmox_lxc_storage }}:{{ proxmox_lxc_disk_gb }}"
+    cores: "{{ proxmox_lxc_cores }}"
+    memory: "{{ proxmox_lxc_memory }}"
+    swap: "{{ proxmox_lxc_swap }}"
+    unprivileged: "{{ proxmox_lxc_unprivileged }}"
+    onboot: "{{ proxmox_lxc_onboot }}"
+    features: "{{ proxmox_lxc_features }}"
+    netif:
+      net0: "name={{ proxmox_lxc_net_interface_name }},bridge={{ proxmox_lxc_bridge }},ip={{ proxmox_lxc_ip_cidr }},gw={{ proxmox_lxc_gateway }}"
+    pubkey: "{{ proxmox_lxc_root_pubkey | default(omit) }}"
+    state: "{{ proxmox_lxc_state }}"
+    update: true
+  no_log: true
+  tags:
+    - proxmox_lxc
+    - container
